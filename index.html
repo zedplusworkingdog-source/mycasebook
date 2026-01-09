@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sagar Cloud Ledger Pro</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        :root { --primary: #1e293b; --in: #059669; --out: #dc2626; --bg: #f1f5f9; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; padding: 10px; }
+        .card { background: white; padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 10px; }
+        .balance-box { text-align: center; background: var(--primary); color: white; padding: 15px; border-radius: 10px; }
+        .filter-card { background: #e2e8f0; padding: 12px; border-radius: 10px; margin-bottom: 10px; font-size: 13px; }
+        input { width: 100%; padding: 12px; margin: 5px 0; border: 1px solid #cbd5e1; border-radius: 8px; box-sizing: border-box; font-size: 15px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .btn { width: 100%; padding: 12px; border: none; border-radius: 8px; font-weight: bold; color: white; cursor: pointer; }
+        .btn-in { background: var(--in); }
+        .btn-out { background: var(--out); }
+        .table-container { overflow-x: auto; background: white; border-radius: 10px; padding: 5px; }
+        table { width: 100%; border-collapse: collapse; min-width: 650px; }
+        th, td { border-bottom: 1px solid #f1f5f9; padding: 12px; text-align: left; font-size: 13px; }
+        .badge-in { color: var(--in); font-weight: bold; }
+        .badge-out { color: var(--out); font-weight: bold; }
+        .summary-line { display: flex; justify-content: space-between; font-weight: bold; margin-top: 5px; }
+        .btn-opt { padding: 10px; font-size: 12px; flex: 1; border-radius: 8px; border: none; color: white; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <div class="balance-box">
+        <small>Total Balance</small>
+        <h2 id="totalBalance">₹ 0</h2>
+    </div>
+
+    <input type="text" id="party" placeholder="Party Name">
+    <input type="text" id="category" placeholder="Category (e.g. Labour, Rent, Diesel)">
+    
+    <div class="grid">
+        <input type="number" id="amt" placeholder="Amount ₹">
+        <input type="text" id="rem" placeholder="Remark">
+    </div>
+    
+    <div class="grid" style="margin-top: 5px;">
+        <button class="btn btn-in" onclick="addEntry('IN')">CASH IN (+)</button>
+        <button class="btn btn-out" onclick="addEntry('OUT')">CASH OUT (-)</button>
+    </div>
+</div>
+
+<div class="filter-card">
+    <strong>Filter & Summary:</strong>
+    <input type="text" id="search" placeholder="🔍 Search Party or Category..." onkeyup="renderTable()">
+    <div class="summary-line"><span>Filtered In:</span> <span id="fIn" style="color:green">₹ 0</span></div>
+    <div class="summary-line"><span>Filtered Out:</span> <span id="fOut" style="color:red">₹ 0</span></div>
+    <div class="summary-line"><span>Filtered Net:</span> <span id="fNet">₹ 0</span></div>
+</div>
+
+<div class="card" style="overflow-x: auto;" id="pdf-area">
+    <h3 style="text-align:center;">Cash Book Report</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Details</th>
+                <th>In (₹)</th>
+                <th>Out (₹)</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody id="listBody"></tbody>
+    </table>
+</div>
+
+<div style="display: flex; gap: 5px; margin-bottom: 20px;">
+    <button class="btn-opt" style="background:#0ea5e9" onclick="viewPDF()">View PDF</button>
+    <button class="btn-opt" style="background:#25D366" onclick="manualBackup()">Full Backup</button>
+    <button class="btn-opt" style="background:#64748b" onclick="importData()">Restore</button>
+</div>
+
+<script>
+    // --- यहाँ अपना नंबर डालें ---
+    const myNumber = '919557974899'; 
+
+    let entries = JSON.parse(localStorage.getItem('sagarProCloudV3')) || [];
+
+    function addEntry(type) {
+        let p = document.getElementById('party').value || "Self";
+        let c = document.getElementById('category').value || "General";
+        let a = parseFloat(document.getElementById('amt').value);
+        let r = document.getElementById('rem').value || "-";
+        let d = new Date().toLocaleDateString('en-GB');
+
+        if(!a || a <= 0) return alert("कृपया सही अमाउंट डालें!");
+
+        let newEntry = {id: Date.now(), date: d, party: p, cat: c, in: type=='IN'?a:0, out: type=='OUT'?a:0, rem: r};
+        
+        entries.push(newEntry);
+        saveData();
+        
+        // ऑटो व्हाट्सएप मैसेज भेजें
+        sendToWhatsApp(newEntry, type);
+
+        document.getElementById('amt').value = '';
+        document.getElementById('rem').value = '';
+    }
+
+    function saveData() {
+        localStorage.setItem('sagarProCloudV3', JSON.stringify(entries));
+        renderTable();
+    }
+
+    function renderTable() {
+        let list = document.getElementById('listBody');
+        let search = document.getElementById('search').value.toLowerCase();
+        list.innerHTML = "";
+        
+        let totalAll = 0, fIn = 0, fOut = 0;
+
+        entries.forEach((item) => {
+            totalAll += (item.in - item.out);
+            
+            if(item.party.toLowerCase().includes(search) || item.cat.toLowerCase().includes(search)) {
+                fIn += item.in;
+                fOut += item.out;
+                
+                list.innerHTML += `<tr>
+                    <td><small>${item.date}</small></td>
+                    <td><b>${item.party}</b><br><small>${item.cat} | ${item.rem}</small></td>
+                    <td class="badge-in">${item.in || '-'}</td>
+                    <td class="badge-out">${item.out || '-'}</td>
+                    <td><button onclick="deleteEntry(${item.id})" style="border:none; background:none; color:red; font-weight:bold;">×</button></td>
+                </tr>`;
+            }
+        });
+
+        document.getElementById('totalBalance').innerText = "₹ " + totalAll.toLocaleString('en-IN');
+        document.getElementById('fIn').innerText = "₹ " + fIn.toLocaleString('en-IN');
+        document.getElementById('fOut').innerText = "₹ " + fOut.toLocaleString('en-IN');
+        document.getElementById('fNet').innerText = "₹ " + (fIn - fOut).toLocaleString('en-IN');
+    }
+
+    function deleteEntry(id) {
+        if(confirm("डिलीट करें?")) {
+            entries = entries.filter(i => i.id !== id);
+            saveData();
+        }
+    }
+
+    function sendToWhatsApp(entry, type) {
+        let status = type === 'IN' ? "✅ पैसे आए (+)" : "❌ पैसे गए (-)";
+        let text = `*नई एंट्री सूचना*\n\n` +
+                   `प्रकार: ${status}\n` +
+                   `तारीख: ${entry.date}\n` +
+                   `पार्टी: ${entry.party}\n` +
+                   `कैटेगरी: ${entry.cat}\n` +
+                   `अमाउंट: ₹${entry.in || entry.out}\n` +
+                   `विवरण: ${entry.rem}\n\n` +
+                   `*कुल शुद्ध बैलेंस: ${document.getElementById('totalBalance').innerText}*`;
+
+        window.open(`https://wa.me/${myNumber}?text=${encodeURIComponent(text)}`, '_blank');
+    }
+
+    function manualBackup() {
+        let text = "*पूरा कैश बुक बैकअप*\n";
+        entries.forEach((item, i) => {
+            text += `${i+1}. [${item.date}] | ${item.party} | ${item.cat} | IN:${item.in} | OUT:${item.out} | ${item.rem}\n`;
+        });
+        window.open(`https://wa.me/${myNumber}?text=${encodeURIComponent(text)}`, '_blank');
+    }
+
+    function viewPDF() {
+        const element = document.getElementById('pdf-area');
+        html2pdf().from(element).outputPdf('bloburl').then(url => window.open(url, '_blank'));
+    }
+
+    function importData() {
+        let backupText = prompt("व्हाट्सएप से कॉपी किया डेटा यहाँ पेस्ट करें:");
+        if (!backupText) return;
+        try {
+            let lines = backupText.split('\n');
+            let newData = [];
+            lines.forEach(line => {
+                if(line.includes('|')) {
+                    let parts = line.split('|');
+                    let date = parts[0].split('[')[1].split(']')[0];
+                    let party = parts[1].trim();
+                    let cat = parts[2].trim();
+                    let inAmt = parseFloat(parts[3].split(':')[1]);
+                    let outAmt = parseFloat(parts[4].split(':')[1]);
+                    let rem = parts[5].trim();
+                    newData.push({id: Date.now()+Math.random(), date: date, party: party, cat: cat, in: inAmt, out: outAmt, rem: rem});
+                }
+            });
+            if(newData.length > 0) { entries = newData; saveData(); alert("Data Restored!"); }
+        } catch(e) { alert("Error in data format!"); }
+    }
+
+    renderTable();
+</script>
+
+</body>
+</html>
